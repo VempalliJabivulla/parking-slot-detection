@@ -1,25 +1,18 @@
 """
-app.py - Streamlit UI for Parking Slot Detection System.
+app.py - Flask Server for Parking Slot Detection System.
 
-Provides a polished web interface with:
-    1. Upload Video  — process an MP4 file with live preview
-    2. Live Camera   — real-time detection from webcam
-
-Auto-Calibration:
-    On first upload, the system automatically detects parking slot positions
-    from the video's first frame using YOLO vehicle detection + gap analysis.
-    No manual coordinate entry needed.
-
-Run with: streamlit run app.py
+Serves a premium HTML/CSS/JS dashboard and handles video uploads,
+MJPEG live processing streams, and browser webcam processing endpoints.
 """
 
-import streamlit as st
+from flask import Flask, render_template, Response, request, jsonify, send_from_directory
 import cv2
 import numpy as np
-import tempfile
-import json
+import base64
 import os
+import json
 import time
+from werkzeug.utils import secure_filename
 
 from detector import VehicleDetector
 from parking import ParkingManager
@@ -27,590 +20,311 @@ from utils import FPSCounter, draw_slots, draw_detections, draw_dashboard
 from auto_calibrate import auto_detect_slots, save_slots
 import config as cfg
 
+# Initialize Flask
+app = Flask(__name__, static_folder="static", template_folder="templates")
 
-# ─────────────────────────────────────────────
-# Page Configuration
-# ─────────────────────────────────────────────
-st.set_page_config(
-    page_title="Parking Slot Detection",
-    page_icon="🅿️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# Upload folder setup
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
-
-# ─────────────────────────────────────────────
-# Custom CSS
-# ─────────────────────────────────────────────
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    * { font-family: 'Inter', sans-serif; }
-
-    .header-banner {
-        background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
-        border-radius: 16px; padding: 2rem 2.5rem; margin-bottom: 1.5rem;
-        border: 1px solid rgba(0, 212, 170, 0.2);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }
-    .header-banner h1 {
-        font-size: 2rem; font-weight: 700;
-        background: linear-gradient(90deg, #00d4aa, #00b4d8);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        margin: 0 0 0.3rem 0;
-    }
-    .header-banner p { color: #94a3b8; font-size: 0.95rem; margin: 0; }
-
-    .metric-card {
-        background: linear-gradient(145deg, #1a1f2e, #151926);
-        border-radius: 12px; padding: 1.2rem 1.5rem; text-align: center;
-        border: 1px solid rgba(255,255,255,0.06);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    .metric-card:hover {
-        transform: translateY(-2px); box-shadow: 0 6px 25px rgba(0,0,0,0.3);
-    }
-    .metric-label {
-        font-size: 0.75rem; font-weight: 500;
-        text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 0.4rem;
-    }
-    .metric-value { font-size: 2rem; font-weight: 700; }
-    .metric-total .metric-label { color: #94a3b8; }
-    .metric-total .metric-value { color: #e2e8f0; }
-    .metric-occupied .metric-label { color: #fca5a5; }
-    .metric-occupied .metric-value { color: #ef4444; }
-    .metric-available .metric-label { color: #86efac; }
-    .metric-available .metric-value { color: #22c55e; }
-    .metric-fps .metric-label { color: #fde68a; }
-    .metric-fps .metric-value { color: #f59e0b; }
-
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0e1117 0%, #141926 100%);
-    }
-
-    .status-badge {
-        display: inline-flex; align-items: center; gap: 6px;
-        padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 500;
-    }
-    .status-ready {
-        background: rgba(34, 197, 94, 0.15); color: #22c55e;
-        border: 1px solid rgba(34, 197, 94, 0.3);
-    }
-    .status-processing {
-        background: rgba(59, 130, 246, 0.15); color: #3b82f6;
-        border: 1px solid rgba(59, 130, 246, 0.3);
-    }
-
-    .info-box {
-        background: linear-gradient(145deg, #1a1f2e, #151926);
-        border: 1px solid rgba(0, 212, 170, 0.2);
-        border-radius: 12px; padding: 2rem; text-align: center; margin: 2rem 0;
-    }
-    .info-box .icon { font-size: 3rem; margin-bottom: 0.8rem; }
-    .info-box p { color: #94a3b8; margin: 0.3rem 0; }
-
-    .stButton > button {
-        border-radius: 8px; font-weight: 600;
-        padding: 0.5rem 1.5rem; transition: all 0.2s ease;
-    }
-
-    .calib-success {
-        background: linear-gradient(145deg, #0d2818, #0f3520);
-        border: 1px solid rgba(34, 197, 94, 0.3);
-        border-radius: 12px; padding: 1.2rem 1.5rem; margin: 1rem 0;
-    }
-    .calib-success p { color: #86efac; margin: 0; }
-
-    #MainMenu { visibility: hidden; }
-    footer { visibility: hidden; }
-    header { visibility: hidden; }
-</style>
-""", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-# Cached Resources
-# ─────────────────────────────────────────────
-@st.cache_resource
-def load_detector(model_name):
-    """Load and cache the YOLOv8 model."""
-    return VehicleDetector(model_path=model_name)
-
-
-# ─────────────────────────────────────────────
-# Session State
-# ─────────────────────────────────────────────
-defaults = {
-    "processing": False,
-    "total": 0, "occupied": 0, "available": 0, "fps": 0.0,
-    "slots_calibrated": False,
-    "auto_slots": None,
-    "current_model": "yolov8s.pt",
+# Global shared variables (configured via API)
+global_settings = {
+    "conf_threshold": 0.25,
+    "overlap_threshold": 0.25,
+    "selected_model": "yolov8s.pt",
+    "video_path": None,
+    "is_playing": False,
 }
-for key, val in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+
+# Shared metrics state for video playback
+latest_metrics = {
+    "total": 0,
+    "occupied": 0,
+    "available": 0,
+    "fps": 0.0
+}
+
+# Lazy loading of models to optimize startup
+_detector = None
+_parking_manager = None
+
+
+def get_detector():
+    """Get or load the vehicle detector."""
+    global _detector
+    if _detector is None or _detector.model.overrides.get("model") != global_settings["selected_model"]:
+        _detector = VehicleDetector(model_path=global_settings["selected_model"])
+    return _detector
+
+
+def get_parking_manager():
+    """Get or load the parking slot manager."""
+    global _parking_manager
+    if _parking_manager is None:
+        _parking_manager = ParkingManager()
+    return _parking_manager
 
 
 # ─────────────────────────────────────────────
-# Sidebar
+# Core Image Processing Pipeline
 # ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## 🅿️ Parking Detection")
-    st.markdown("---")
+def process_single_frame(frame, conf, overlap):
+    """Process a single frame through detector and slot manager."""
+    detector = get_detector()
+    parking_manager = get_parking_manager()
 
-    mode = st.radio("**Mode**", ["📹 Upload Video", "📷 Live Camera"], index=0)
+    # Detect
+    detections = detector.detect(frame, conf=conf)
 
-    st.markdown("---")
-    st.markdown("### ⚙️ Detection Settings")
-
-    # Dropdown to choose YOLO model
-    model_option = st.selectbox(
-        "**YOLO Model**",
-        ["Nano (Fastest)", "Small (Balanced)", "Medium (Accurate)"],
-        index=1,
-        help="Nano is fast but misses small/distant cars. Medium is highly accurate but slower.",
-    )
-    
-    # Map selection to model path
-    model_mapping = {
-        "Nano (Fastest)": "yolov8n.pt",
-        "Small (Balanced)": "yolov8s.pt",
-        "Medium (Accurate)": "yolov8m.pt"
-    }
-    selected_model = model_mapping[model_option]
-
-    # If the user changed the model, force re-calibration of slots
-    if selected_model != st.session_state.current_model:
-        st.session_state.current_model = selected_model
-        st.session_state.slots_calibrated = False
-        st.session_state.auto_slots = None
-        if os.path.exists(cfg.PARKING_SLOTS_FILE):
-            os.remove(cfg.PARKING_SLOTS_FILE)
-        st.toast(f"Model switched to {selected_model}. Slots cleared for re-calibration.", icon="🔄")
-        st.rerun()
-
-    conf_threshold = st.slider(
-        "Confidence Threshold", 0.05, 1.00, 0.25, 0.05,
-        help="Lower values detect more vehicles, higher values avoid false detections",
-    )
-    overlap_threshold = st.slider(
-        "Overlap Threshold", 0.05, 1.00, 0.25, 0.05,
-        help="Percentage overlap of vehicle bottom wheels area with slot to mark as occupied",
-    )
-
-    st.markdown("---")
-
-    uploaded_video = None
-    if "Upload" in mode:
-        st.markdown("### 📁 Video Input")
-        uploaded_video = st.file_uploader(
-            "Choose a video file",
-            type=["mp4", "avi", "mov", "mkv"],
-        )
-
-    if "Upload" in mode or "Live" in mode:
-        save_output = st.checkbox("💾 Save Processed Video", value=False)
-    else:
-        save_output = False
-
-    # Slot status
-    st.markdown("---")
-    if os.path.exists(cfg.PARKING_SLOTS_FILE):
-        with open(cfg.PARKING_SLOTS_FILE) as f:
-            data = json.load(f)
-        n = len(data.get("slots", []))
-        st.success(f"✅ {n} parking slots loaded")
-        if st.button("🔄 Re-calibrate Slots", use_container_width=True):
-            st.session_state.slots_calibrated = False
-            st.session_state.auto_slots = None
-            if os.path.exists(cfg.PARKING_SLOTS_FILE):
-                os.remove(cfg.PARKING_SLOTS_FILE)
-            st.rerun()
-    else:
-        st.info("🎯 Slots will auto-detect on first video upload")
-
-    st.markdown(
-        "<div style='text-align:center;color:#64748b;font-size:0.75rem;margin-top:1rem;'>"
-        "Powered by YOLOv8 + OpenCV</div>",
-        unsafe_allow_html=True,
-    )
-
-
-# ─────────────────────────────────────────────
-# Header
-# ─────────────────────────────────────────────
-st.markdown("""
-<div class="header-banner">
-    <h1>🅿️ Parking Slot Detection System</h1>
-    <p>Real-time vehicle detection &amp; parking occupancy monitoring powered by YOLOv8</p>
-</div>
-""", unsafe_allow_html=True)
-
-
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
-def render_metrics(total, occupied, available, fps):
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(f'<div class="metric-card metric-total">'
-                     f'<div class="metric-label">Total Slots</div>'
-                     f'<div class="metric-value">{total}</div></div>',
-                     unsafe_allow_html=True)
-    with c2:
-        st.markdown(f'<div class="metric-card metric-occupied">'
-                     f'<div class="metric-label">Occupied</div>'
-                     f'<div class="metric-value">{occupied}</div></div>',
-                     unsafe_allow_html=True)
-    with c3:
-        st.markdown(f'<div class="metric-card metric-available">'
-                     f'<div class="metric-label">Available</div>'
-                     f'<div class="metric-value">{available}</div></div>',
-                     unsafe_allow_html=True)
-    with c4:
-        st.markdown(f'<div class="metric-card metric-fps">'
-                     f'<div class="metric-label">FPS</div>'
-                     f'<div class="metric-value">{fps:.1f}</div></div>',
-                     unsafe_allow_html=True)
-
-
-def process_frame(frame, detector, parking_manager, fps_counter,
-                  conf_thresh, overlap_thresh):
-    fps_counter.tick()
-    detections = detector.detect(frame, conf=conf_thresh)
+    # Check slots
     h, w = frame.shape[:2]
-    parking_manager.check_occupancy_fast(detections, (h, w), overlap_thresh=overlap_thresh)
+    parking_manager.check_occupancy_fast(detections, (h, w), overlap_thresh=overlap)
+
+    # Status
     total, occupied, available = parking_manager.get_status()
-    fps = fps_counter.get_fps()
-    frame = draw_slots(frame, parking_manager.get_slots())
-    frame = draw_detections(frame, detections)
-    frame = draw_dashboard(frame, total, occupied, available, fps)
-    return frame, total, occupied, available, fps
+
+    # Annotate frame
+    annotated = draw_slots(frame.copy(), parking_manager.get_slots())
+    annotated = draw_detections(annotated, detections)
+
+    return annotated, total, occupied, available
 
 
-def save_temp_video(uploaded_file):
-    tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-    tfile.write(uploaded_file.read())
-    tfile.close()
-    return tfile.name
+# ─────────────────────────────────────────────
+# Video Processing Generator (MJPEG Stream)
+# ─────────────────────────────────────────────
+def generate_video_stream():
+    """Generator for streaming processed video frames."""
+    video_path = global_settings["video_path"]
+    if not video_path or not os.path.exists(video_path):
+        return
+
+    cap = cv2.VideoCapture(video_path)
+    fps_counter = FPSCounter()
+
+    while cap.isOpened() and global_settings["is_playing"]:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        fps_counter.tick()
+        fps = fps_counter.get_fps()
+
+        # Retrieve thresholds
+        conf = global_settings["conf_threshold"]
+        overlap = global_settings["overlap_threshold"]
+
+        # Process frame
+        processed, total, occupied, available = process_single_frame(frame, conf, overlap)
+
+        # Update latest metrics for status API polling
+        latest_metrics["total"] = total
+        latest_metrics["occupied"] = occupied
+        latest_metrics["available"] = available
+        latest_metrics["fps"] = round(fps, 1)
+
+        # Draw dashboard on frame
+        processed = draw_dashboard(processed, total, occupied, available, fps)
+
+        # Encode to JPEG
+        ret, jpeg = cv2.imencode(".jpg", processed)
+        if not ret:
+            continue
+
+        frame_bytes = jpeg.tobytes()
+
+        # Yield frame in MJPEG multipart format
+        yield (b"--frame\r\n"
+               b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n")
+
+        # Regulate playback speed (approx. 25 FPS)
+        time.sleep(0.03)
+
+    cap.release()
 
 
-def run_auto_calibration(temp_path, detector):
-    """
-    Run auto-calibration on the first frame of the video.
-    Shows progress and preview in the Streamlit UI.
-    """
-    cap = cv2.VideoCapture(temp_path)
+# ─────────────────────────────────────────────
+# Routes
+# ─────────────────────────────────────────────
+@app.route("/")
+def index():
+    """Serve the main frontend dashboard."""
+    return render_template("index.html")
+
+
+@app.route("/api/settings", methods=["GET", "POST"])
+def settings_handler():
+    """Get or update global configuration settings."""
+    if request.method == "POST":
+        data = request.json
+        if "conf_threshold" in data:
+            global_settings["conf_threshold"] = float(data["conf_threshold"])
+        if "overlap_threshold" in data:
+            global_settings["overlap_threshold"] = float(data["overlap_threshold"])
+        if "selected_model" in data:
+            model = data["selected_model"]
+            if model in ["yolov8n.pt", "yolov8s.pt", "yolov8m.pt"]:
+                if global_settings["selected_model"] != model:
+                    global_settings["selected_model"] = model
+                    # Force reload of detector on next call
+                    global _detector
+                    _detector = None
+                    # Reset slots since a new model is selected
+                    if os.path.exists(cfg.PARKING_SLOTS_FILE):
+                        os.remove(cfg.PARKING_SLOTS_FILE)
+                        global _parking_manager
+                        _parking_manager = None
+
+        return jsonify({"status": "success", "settings": global_settings})
+
+    return jsonify(global_settings)
+
+
+@app.route("/api/status", methods=["GET"])
+def get_status():
+    """Return the latest frame processing metrics for Video mode."""
+    return jsonify(latest_metrics)
+
+
+@app.route("/api/upload", methods=["POST"])
+def upload_video():
+    """Handle video uploads and trigger auto-calibration if slots are empty."""
+    if "video" not in request.files:
+        return jsonify({"error": "No video file provided"}), 400
+
+    file = request.files["video"]
+    if file.filename == "":
+        return jsonify({"error": "Empty filename"}), 400
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(filepath)
+
+    global_settings["video_path"] = filepath
+    global_settings["is_playing"] = False
+
+    # Check if we need to auto-calibrate
+    slots_exist = os.path.exists(cfg.PARKING_SLOTS_FILE)
+
+    return jsonify({
+        "status": "success",
+        "filename": filename,
+        "needs_calibration": not slots_exist
+    })
+
+
+@app.route("/api/auto_detect", methods=["POST"])
+def trigger_auto_detect():
+    """Run auto-calibration on the first frame of the uploaded video."""
+    video_path = global_settings["video_path"]
+    if not video_path or not os.path.exists(video_path):
+        return jsonify({"error": "No video file uploaded yet"}), 400
+
+    cap = cv2.VideoCapture(video_path)
     ret, frame = cap.read()
     cap.release()
 
     if not ret:
-        st.error("❌ Cannot read frame from video.")
-        return False
+        return jsonify({"error": "Could not read frame from video"}), 500
 
-    with st.spinner("🎯 Auto-detecting parking slots from first frame..."):
-        slots = auto_detect_slots(frame, detector, conf=0.20)
+    detector = get_detector()
+    slots = auto_detect_slots(frame, detector, conf=0.20)
 
     if not slots:
-        st.error("❌ Could not detect any parking slots. Try a video with more visible cars.")
-        return False
+        return jsonify({"error": "No slots detected. Point at visible parked cars."}), 400
 
-    # Save to file
     save_slots(slots, cfg.PARKING_SLOTS_FILE)
-    st.session_state.auto_slots = slots
-    st.session_state.slots_calibrated = True
+    
+    # Reload parking manager to pick up new slots
+    global _parking_manager
+    _parking_manager = ParkingManager()
 
-    # Show preview of detected slots
-    preview = frame.copy()
-    overlay = preview.copy()
-    for slot in slots:
-        pts = np.array(slot["points"], dtype=np.int32)
-        cv2.fillPoly(overlay, [pts], (0, 200, 0))
-        cv2.polylines(preview, [pts], True, (0, 255, 0), 2)
-        centroid = pts.mean(axis=0).astype(int)
-        cv2.putText(preview, str(slot["id"]),
-                    (centroid[0] - 8, centroid[1] + 6),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-    cv2.addWeighted(overlay, 0.25, preview, 0.75, 0, preview)
-    preview_rgb = cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)
+    return jsonify({
+        "status": "success",
+        "slots_count": len(slots)
+    })
 
-    st.markdown(
-        f'<div class="calib-success">'
-        f'<p>✅ Auto-detected <strong>{len(slots)}</strong> parking slots!</p>'
-        f'</div>',
-        unsafe_allow_html=True,
+
+@app.route("/api/reset_slots", methods=["POST"])
+def reset_slots():
+    """Delete current parking slots file."""
+    if os.path.exists(cfg.PARKING_SLOTS_FILE):
+        os.remove(cfg.PARKING_SLOTS_FILE)
+    global _parking_manager
+    _parking_manager = None
+    return jsonify({"status": "success"})
+
+
+@app.route("/api/control_playback", methods=["POST"])
+def control_playback():
+    """Start or stop video playback."""
+    data = request.json
+    action = data.get("action")
+    if action == "start":
+        global_settings["is_playing"] = True
+    elif action == "stop":
+        global_settings["is_playing"] = False
+    return jsonify({"status": "success", "is_playing": global_settings["is_playing"]})
+
+
+@app.route("/video_feed")
+def video_feed():
+    """Stream processed video frames as MJPEG."""
+    return Response(
+        generate_video_stream(),
+        mimetype="multipart/x-mixed-replace; boundary=frame"
     )
-    st.image(preview_rgb, caption="Detected parking slot positions", use_container_width=True)
-
-    return True
 
 
-# ─────────────────────────────────────────────
-# Load detector based on selected model
-# ─────────────────────────────────────────────
-detector = load_detector(st.session_state.current_model)
+@app.route("/api/process_webcam", methods=["POST"])
+def process_webcam():
+    """Process a single base64 webcam frame sent from the browser."""
+    data = request.json
+    if not data or "image" not in data:
+        return jsonify({"error": "No image data"}), 400
 
+    # Parse base64 image data
+    img_data = data["image"].split(",")[1]
+    img_bytes = base64.b64decode(img_data)
+    np_arr = np.frombuffer(img_bytes, np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-# ═════════════════════════════════════════════
-# MODE: Upload Video
-# ═════════════════════════════════════════════
-if "Upload" in mode:
-    metrics_placeholder = st.empty()
-    with metrics_placeholder.container():
-        render_metrics(st.session_state.total, st.session_state.occupied,
-                       st.session_state.available, st.session_state.fps)
+    # Process frame
+    conf = global_settings["conf_threshold"]
+    overlap = global_settings["overlap_threshold"]
 
-    frame_placeholder = st.empty()
-    status_placeholder = st.empty()
-    progress_placeholder = st.empty()
-    download_placeholder = st.empty()
-
-    if uploaded_video is not None:
-        temp_path = save_temp_video(uploaded_video)
-
-        # ── Auto-calibrate if no slots exist ──
-        needs_calibration = not os.path.exists(cfg.PARKING_SLOTS_FILE)
-
-        if needs_calibration:
-            st.markdown("### 🎯 Automatic Slot Detection")
-            st.markdown(
-                "No parking slots defined yet. The system will analyze your video's "
-                "first frame to automatically detect all parking slot positions."
-            )
-
-            if st.button("🎯 Auto-Detect Parking Slots", use_container_width=True, type="primary"):
-                success = run_auto_calibration(temp_path, detector)
-                if success:
-                    st.info("👆 Slots detected! Click **Start Processing** below to begin.")
-                    st.rerun()
-
-        else:
-            # Slots exist — show processing controls
+    # Auto-detect slots on webcam if none exist
+    parking_manager = get_parking_manager()
+    if len(parking_manager.get_slots()) == 0:
+        detector = get_detector()
+        slots = auto_detect_slots(frame, detector, conf=0.20)
+        if slots:
+            save_slots(slots, cfg.PARKING_SLOTS_FILE)
             parking_manager = ParkingManager()
 
-            col_start, col_stop = st.columns(2)
-            start_btn = col_start.button("▶️  Start Processing", use_container_width=True, type="primary")
-            stop_btn = col_stop.button("⏹️  Stop", use_container_width=True)
+    # Process frame
+    processed, total, occupied, available = process_single_frame(frame, conf, overlap)
 
-            if stop_btn:
-                st.session_state.processing = False
-            if start_btn:
-                st.session_state.processing = True
+    # Calculate FPS (simulated for webcam API client)
+    fps = data.get("fps", 0.0)
+    processed = draw_dashboard(processed, total, occupied, available, fps)
 
-            if st.session_state.processing:
-                cap = cv2.VideoCapture(temp_path)
-                if not cap.isOpened():
-                    st.error("❌ Cannot open video file.")
-                    st.session_state.processing = False
-                else:
-                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    video_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-                    frame_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    frame_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    fps_counter = FPSCounter()
+    # Encode back to JPEG base64
+    ret, jpeg = cv2.imencode(".jpg", processed)
+    if not ret:
+        return jsonify({"error": "Failed to encode frame"}), 500
 
-                    status_placeholder.markdown(
-                        '<span class="status-badge status-processing">⏳ Processing...</span>',
-                        unsafe_allow_html=True,
-                    )
+    processed_bytes = jpeg.tobytes()
+    processed_base64 = base64.b64encode(processed_bytes).decode("utf-8")
 
-                    writer = None
-                    output_path = None
-                    if save_output:
-                        output_path = os.path.join(tempfile.gettempdir(), "parking_output.avi")
-                        fourcc = cv2.VideoWriter_fourcc(*cfg.OUTPUT_CODEC)
-                        writer = cv2.VideoWriter(output_path, fourcc, video_fps, (frame_w, frame_h))
-
-                    prog_bar = progress_placeholder.progress(0, text="Starting...")
-                    frame_num = 0
-
-                    while cap.isOpened():
-                        ret, frame = cap.read()
-                        if not ret:
-                            break
-
-                        frame_num += 1
-                        processed, total, occupied, available, fps = process_frame(
-                            frame, detector, parking_manager, fps_counter,
-                            conf_threshold, overlap_threshold,
-                        )
-
-                        if writer is not None:
-                            writer.write(processed)
-
-                        frame_rgb = cv2.cvtColor(processed, cv2.COLOR_BGR2RGB)
-                        frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
-
-                        with metrics_placeholder.container():
-                            render_metrics(total, occupied, available, fps)
-
-                        progress = frame_num / total_frames if total_frames > 0 else 0
-                        prog_bar.progress(
-                            min(progress, 1.0),
-                            text=f"Frame {frame_num}/{total_frames} • {progress*100:.0f}%",
-                        )
-
-                    cap.release()
-                    if writer:
-                        writer.release()
-
-                    st.session_state.processing = False
-                    status_placeholder.markdown(
-                        '<span class="status-badge status-ready">✅ Complete</span>',
-                        unsafe_allow_html=True,
-                    )
-                    progress_placeholder.empty()
-
-                    if output_path and os.path.exists(output_path):
-                        with open(output_path, "rb") as f:
-                            download_placeholder.download_button(
-                                "📥  Download Processed Video", data=f,
-                                file_name="parking_processed.avi", mime="video/avi",
-                                use_container_width=True,
-                            )
-
-        try:
-            os.unlink(temp_path)
-        except (PermissionError, FileNotFoundError):
-            pass
-    else:
-        st.markdown("""
-        <div class="info-box">
-            <div class="icon">📹</div>
-            <p style="font-size:1.1rem; color:#e2e8f0; font-weight:500;">
-                Upload a video to get started</p>
-            <p>The system will automatically detect parking slots from the first frame</p>
-        </div>""", unsafe_allow_html=True)
+    return jsonify({
+        "image": f"data:image/jpeg;base64,{processed_base64}",
+        "total": total,
+        "occupied": occupied,
+        "available": available
+    })
 
 
-# ═════════════════════════════════════════════
-# MODE: Live Camera
-# ═════════════════════════════════════════════
-elif "Live" in mode:
-    # Ensure camera is released if we change modes (handled by session state)
-    if "cap" in st.session_state and not st.session_state.processing:
-        st.session_state.cap.release()
-        del st.session_state.cap
-
-    parking_manager = ParkingManager()
-
-    metrics_placeholder = st.empty()
-    with metrics_placeholder.container():
-        render_metrics(st.session_state.total, st.session_state.occupied,
-                       st.session_state.available, st.session_state.fps)
-
-    frame_placeholder = st.empty()
-    status_placeholder = st.empty()
-
-    col_start, col_stop, col_calib = st.columns(3)
-    start_btn = col_start.button("📷  Start Camera", use_container_width=True, type="primary")
-    stop_btn = col_stop.button("⏹️  Stop Camera", use_container_width=True)
-    calib_btn = col_calib.button("🎯  Auto-Detect Slots", use_container_width=True)
-
-    if stop_btn:
-        st.session_state.processing = False
-        if "cap" in st.session_state:
-            st.session_state.cap.release()
-            del st.session_state.cap
-        st.rerun()
-
-    if start_btn:
-        st.session_state.processing = True
-        st.rerun()
-
-    # Auto-calibrate from webcam
-    if calib_btn:
-        cap = cv2.VideoCapture(0)
-        if cap.isOpened():
-            # Discard first 25 warm-up frames so camera exposure/focus settles
-            with st.spinner("📷 Initializing camera sensor..."):
-                for _ in range(25):
-                    cap.read()
-            ret, frame = cap.read()
-            cap.release()
-            
-            if ret:
-                with st.spinner("🎯 Auto-detecting slots from camera..."):
-                    slots = auto_detect_slots(frame, detector, conf=0.20)
-                if slots:
-                    save_slots(slots, cfg.PARKING_SLOTS_FILE)
-                    st.success(f"✅ Detected {len(slots)} parking slots!")
-                    parking_manager = ParkingManager()
-                    st.rerun()
-                else:
-                    st.warning("⚠️ No vehicles detected. Adjust your camera angle or light.")
-            else:
-                st.error("❌ Failed to grab frame from webcam.")
-        else:
-            st.error("❌ Cannot open webcam.")
-
-    # Frame-by-frame non-blocking rendering loop
-    if st.session_state.processing:
-        # Lazy initialize camera session
-        if "cap" not in st.session_state:
-            with st.spinner("📷 Connecting to camera..."):
-                cap = cv2.VideoCapture(0)
-                if not cap.isOpened():
-                    st.error("❌ Cannot open webcam. Check connections and permissions.")
-                    st.session_state.processing = False
-                    st.rerun()
-                else:
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-                    # Sensor warm-up
-                    for _ in range(15):
-                        cap.read()
-                    st.session_state.cap = cap
-                    st.session_state.fps_counter = FPSCounter()
-
-        # Read and process single frame
-        cap = st.session_state.cap
-        ret, frame = cap.read()
-        
-        if ret:
-            status_placeholder.markdown(
-                '<span class="status-badge status-processing">🔴 Live Feed</span>',
-                unsafe_allow_html=True,
-            )
-            processed, total, occupied, available, fps = process_frame(
-                frame, detector, parking_manager, st.session_state.fps_counter,
-                conf_threshold, overlap_threshold,
-            )
-            
-            frame_rgb = cv2.cvtColor(processed, cv2.COLOR_BGR2RGB)
-            frame_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
-            
-            with metrics_placeholder.container():
-                render_metrics(total, occupied, available, fps)
-            
-            # Tiny sleep to yield control and limit CPU load
-            time.sleep(0.01)
-            # Rerun the script to grab the next frame (keeps Streamlit interactive)
-            st.rerun()
-        else:
-            st.warning("⚠️ Connection to webcam lost.")
-            st.session_state.processing = False
-            if "cap" in st.session_state:
-                st.session_state.cap.release()
-                del st.session_state.cap
-            st.rerun()
-
-    elif not st.session_state.processing:
-        if not os.path.exists(cfg.PARKING_SLOTS_FILE):
-            st.markdown("""
-            <div class="info-box">
-                <div class="icon">📷</div>
-                <p style="font-size:1.1rem; color:#e2e8f0; font-weight:500;">
-                    No slots defined yet</p>
-                <p>Click <strong>Auto-Detect Slots</strong> to scan from camera,
-                   or upload a video first</p>
-            </div>""", unsafe_allow_html=True)
-        else:
-            st.markdown("""
-            <div class="info-box">
-                <div class="icon">📷</div>
-                <p style="font-size:1.1rem; color:#e2e8f0; font-weight:500;">Ready to detect</p>
-                <p>Click <strong>Start Camera</strong> to begin live detection</p>
-            </div>""", unsafe_allow_html=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

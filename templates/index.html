@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parking Slot Detection Dashboard</title>
+    
+    <!-- Google Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Premium CSS Styles -->
+    <style>
+        :root {
+            --primary: #00d4aa;
+            --primary-glow: rgba(0, 212, 170, 0.15);
+            --bg: #0e1117;
+            --card-bg: #1a1f2e;
+            --text: #fafafa;
+            --text-muted: #94a3b8;
+            --red: #ef4444;
+            --green: #22c55e;
+            --yellow: #f59e0b;
+            --border: rgba(255, 255, 255, 0.06);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 320px;
+            background: linear-gradient(180deg, #0e1117 0%, #141926 100%);
+            border-right: 1px solid var(--border);
+            padding: 2rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            overflow-y: auto;
+        }
+
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+            font-size: 1.25rem;
+            letter-spacing: -0.5px;
+            color: var(--text);
+        }
+
+        .logo-icon {
+            background: linear-gradient(135deg, var(--primary) 0%, #00b4d8 100%);
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            color: #0e1117;
+            box-shadow: 0 4px 15px rgba(0, 212, 170, 0.3);
+        }
+
+        .divider {
+            height: 1px;
+            background-color: var(--border);
+            width: 100%;
+        }
+
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        /* Mode Selector */
+        .mode-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .mode-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            padding: 0.8rem 1rem;
+            border-radius: 8px;
+            color: var(--text);
+            font-weight: 500;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .mode-btn:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .mode-btn.active {
+            background-color: var(--primary-glow);
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        /* Settings Sliders */
+        .setting-group {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .slider-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .slider-value {
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #2d3748;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--primary);
+            transition: transform 0.1s ease;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .select-wrapper select {
+            width: 100%;
+            background-color: #1a1f2e;
+            border: 1px solid var(--border);
+            padding: 0.8rem;
+            border-radius: 8px;
+            color: var(--text);
+            outline: none;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        /* ── Main Panel ── */
+        .main-content {
+            flex: 1;
+            padding: 2rem 2.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .header-banner {
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+            border-radius: 16px;
+            padding: 1.5rem 2rem;
+            border: 1px solid rgba(0, 212, 170, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-banner h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--primary), #00b4d8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.2rem;
+        }
+
+        .header-banner p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Metrics Row */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.25rem;
+        }
+
+        .metric-card {
+            background: linear-gradient(145deg, #1a1f2e, #151926);
+            border-radius: 12px;
+            padding: 1.2rem 1.5rem;
+            text-align: center;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 0.4rem;
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .metric-total .metric-label { color: var(--text-muted); }
+        .metric-total .metric-value { color: #e2e8f0; }
+        .metric-occupied .metric-label { color: #fca5a5; }
+        .metric-occupied .metric-value { color: var(--red); }
+        .metric-available .metric-label { color: #86efac; }
+        .metric-available .metric-value { color: var(--green); }
+        .metric-fps .metric-label { color: #fde68a; }
+        .metric-fps .metric-value { color: var(--yellow); }
+
+        /* Video / Display Window */
+        .video-box {
+            flex: 1;
+            background: #0a0e14;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            min-height: 400px;
+        }
+
+        .video-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        .info-box {
+            text-align: center;
+            padding: 3rem;
+            max-width: 450px;
+        }
+
+        .info-box-icon {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .info-box h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #e2e8f0;
+        }
+
+        .info-box p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Buttons & Actions */
+        .btn {
+            background-color: var(--primary);
+            color: #0e1117;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(0, 212, 170, 0.4);
+        }
+
+        .btn-secondary {
+            background-color: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+            box-shadow: none;
+        }
+
+        .btn-danger {
+            background-color: var(--red);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+        }
+
+        .controls-row {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .status-badge {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-badge.processing {
+            background: rgba(59, 130, 246, 0.15);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        /* File Upload */
+        .file-upload-input {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ── Sidebar ── -->
+    <div class="sidebar">
+        <div class="logo-area">
+            <div class="logo-icon">🅿️</div>
+            <div>Parking Slot Detection</div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <!-- Mode Selector -->
+        <div class="mode-container">
+            <div class="section-title">Mode</div>
+            <button id="upload-mode-btn" class="mode-btn active">
+                <span>📹</span> Upload Video
+            </button>
+            <button id="webcam-mode-btn" class="mode-btn">
+                <span>📷</span> Browser Webcam
+            </button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Detection Settings -->
+        <div class="setting-group">
+            <div class="section-title">Detection Settings</div>
+            
+            <!-- YOLO Model Selection -->
+            <div class="select-wrapper">
+                <label class="slider-header" style="margin-bottom: 0.4rem;">YOLO Model</label>
+                <select id="model-select">
+                    <option value="yolov8n.pt">Nano (Fastest)</option>
+                    <option value="yolov8s.pt" selected>Small (Balanced)</option>
+                    <option value="yolov8m.pt">Medium (Accurate)</option>
+                </select>
+            </div>
+
+            <!-- Conf Slider -->
+            <div class="slider-wrapper">
+                <div class="slider-header">
+                    <span>Confidence Threshold</span>
+                    <span id="conf-val" class="slider-value">0.25</span>
+                </div>
+                <input type="range" id="conf-slider" min="0.05" max="1.00" value="0.25" step="0.05">
+            </div>
+
+            <!-- Overlap Slider -->
+            <div class="slider-wrapper">
+                <div class="slider-header">
+                    <span>Overlap Threshold</span>
+                    <span id="overlap-val" class="slider-value">0.25</span>
+                </div>
+                <input type="range" id="overlap-slider" min="0.05" max="1.00" value="0.25" step="0.05">
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Re-calibrate Button -->
+        <button id="reset-slots-btn" class="btn btn-secondary" style="width: 100%;">
+            🔄 Re-calibrate Slots
+        </button>
+    </div>
+
+    <!-- ── Main Panel ── -->
+    <div class="main-content">
+        <!-- Top Header -->
+        <div class="header-banner">
+            <div>
+                <h1>🅿️ Real-Time Dashboard</h1>
+                <p>AI-powered vehicle classification &amp; layout occupancy</p>
+            </div>
+            <div id="status-badge-container">
+                <span class="status-badge" id="status-badge">🟢 Connected</span>
+            </div>
+        </div>
+
+        <!-- Metrics Grid -->
+        <div class="metrics-grid">
+            <div class="metric-card metric-total">
+                <div class="metric-label">Total Slots</div>
+                <div id="metric-total-val" class="metric-value">0</div>
+            </div>
+            <div class="metric-card metric-occupied">
+                <div class="metric-label">Occupied</div>
+                <div id="metric-occupied-val" class="metric-value">0</div>
+            </div>
+            <div class="metric-card metric-available">
+                <div class="metric-label">Available</div>
+                <div id="metric-available-val" class="metric-value">0</div>
+            </div>
+            <div class="metric-card metric-fps">
+                <div class="metric-label">FPS</div>
+                <div id="metric-fps-val" class="metric-value">0.0</div>
+            </div>
+        </div>
+
+        <!-- Display Area -->
+        <div class="video-box">
+            <!-- Processed Stream Output -->
+            <img id="processed-feed" class="video-feed" alt="Processed Feed">
+
+            <!-- File Upload Frame -->
+            <div id="upload-prompt" class="info-box">
+                <div class="info-box-icon">📹</div>
+                <h3>Upload a Video</h3>
+                <p>Upload an MP4, AVI, or MOV video to begin automated slot classification.</p>
+                <input type="file" id="file-uploader" class="file-upload-input" accept="video/*">
+                <button id="upload-btn" class="btn">📁 Choose Video</button>
+            </div>
+
+            <!-- Auto-Calibration Dialog -->
+            <div id="calibration-prompt" class="info-box" style="display: none;">
+                <div class="info-box-icon">🎯</div>
+                <h3>Automatic Calibration</h3>
+                <p>No parking slot coordinates exist for this view. We will scan the first frame of your video to calibrate slot positions.</p>
+                <button id="calibrate-btn" class="btn">🎯 Run Auto-Detect</button>
+            </div>
+
+            <!-- Webcam Loading Prompt -->
+            <div id="webcam-prompt" class="info-box" style="display: none;">
+                <div class="info-box-icon">📷</div>
+                <h3>Webcam Feed</h3>
+                <p>Click start to capture your local browser webcam stream and process frames in the cloud.</p>
+                <button id="webcam-start-btn" class="btn">▶️ Start Webcam</button>
+            </div>
+        </div>
+
+        <!-- Action Controls Row -->
+        <div class="controls-row" id="playback-controls" style="display: none;">
+            <button id="play-pause-btn" class="btn">▶️ Start Processing</button>
+            <button id="stop-processing-btn" class="btn btn-secondary">⏹️ Stop</button>
+        </div>
+    </div>
+
+    <!-- Hidden Video / Canvas for Webcam Stream -->
+    <video id="hidden-video" style="display: none;" autoplay playsinline></video>
+    <canvas id="hidden-canvas" style="display: none;"></canvas>
+
+    <!-- Frontend logic -->
+    <script>
+        // DOM Elements
+        const uploadModeBtn = document.getElementById('upload-mode-btn');
+        const webcamModeBtn = document.getElementById('webcam-mode-btn');
+        const confSlider = document.getElementById('conf-slider');
+        const confVal = document.getElementById('conf-val');
+        const overlapSlider = document.getElementById('overlap-slider');
+        const overlapVal = document.getElementById('overlap-val');
+        const modelSelect = document.getElementById('model-select');
+        const resetSlotsBtn = document.getElementById('reset-slots-btn');
+
+        const processedFeed = document.getElementById('processed-feed');
+        const uploadPrompt = document.getElementById('upload-prompt');
+        const calibrationPrompt = document.getElementById('calibration-prompt');
+        const webcamPrompt = document.getElementById('webcam-prompt');
+        const playbackControls = document.getElementById('playback-controls');
+        
+        const fileUploader = document.getElementById('file-uploader');
+        const uploadBtn = document.getElementById('upload-btn');
+        const calibrateBtn = document.getElementById('calibrate-btn');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const stopProcessingBtn = document.getElementById('stop-processing-btn');
+        const webcamStartBtn = document.getElementById('webcam-start-btn');
+        const statusBadge = document.getElementById('status-badge');
+
+        const totalVal = document.getElementById('metric-total-val');
+        const occupiedVal = document.getElementById('metric-occupied-val');
+        const availableVal = document.getElementById('metric-available-val');
+        const fpsVal = document.getElementById('metric-fps-val');
+
+        const hiddenVideo = document.getElementById('hidden-video');
+        const hiddenCanvas = document.getElementById('hidden-canvas');
+
+        // State variables
+        let currentMode = 'upload'; // upload or webcam
+        let isProcessingVideo = false;
+        let isWebcamRunning = false;
+        let webcamIntervalId = null;
+        let statusIntervalId = null;
+        let webcamStream = null;
+        
+        // FPS calculation variables
+        let lastFrameTime = performance.now();
+        let frameCount = 0;
+        let currentFPS = 0.0;
+
+        // ── Settings Synchronizer ──
+        async function updateSettings() {
+            const conf = confSlider.value;
+            const overlap = overlapSlider.value;
+            const model = modelSelect.value;
+            
+            confVal.textContent = conf;
+            overlapVal.textContent = overlap;
+
+            await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conf_threshold: conf,
+                    overlap_threshold: overlap,
+                    selected_model: model
+                })
+            });
+        }
+
+        confSlider.addEventListener('input', updateSettings);
+        overlapSlider.addEventListener('input', updateSettings);
+        modelSelect.addEventListener('change', updateSettings);
+
+        // ── Status Polling for Video Playback ──
+        function startStatusPolling() {
+            if (statusIntervalId) clearInterval(statusIntervalId);
+            statusIntervalId = setInterval(async () => {
+                if (!isProcessingVideo) return;
+                try {
+                    const response = await fetch('/api/status');
+                    const data = await response.json();
+                    totalVal.textContent = data.total;
+                    occupiedVal.textContent = data.occupied;
+                    availableVal.textContent = data.available;
+                    fpsVal.textContent = data.fps.toFixed(1);
+                } catch (err) {
+                    console.error("Failed to poll status metrics:", err);
+                }
+            }, 300);
+        }
+
+        function stopStatusPolling() {
+            if (statusIntervalId) {
+                clearInterval(statusIntervalId);
+                statusIntervalId = null;
+            }
+        }
+
+        // ── Reset Slots ──
+        resetSlotsBtn.addEventListener('click', async () => {
+            if (confirm("Reset current parking slots calibration?")) {
+                await fetch('/api/reset_slots', { method: 'POST' });
+                alert("Calibration deleted. Please auto-detect or upload a new video.");
+                location.reload();
+            }
+        });
+
+        // ── Mode Switcher ──
+        uploadModeBtn.addEventListener('click', () => {
+            if (currentMode === 'upload') return;
+            currentMode = 'upload';
+            uploadModeBtn.classList.add('active');
+            webcamModeBtn.classList.remove('active');
+            stopWebcam();
+            showUploadPrompt();
+        });
+
+        webcamModeBtn.addEventListener('click', () => {
+            if (currentMode === 'webcam') return;
+            currentMode = 'webcam';
+            webcamModeBtn.classList.add('active');
+            uploadModeBtn.classList.remove('active');
+            stopVideoProcessing();
+            showWebcamPrompt();
+        });
+
+        // ── View States ──
+        function showUploadPrompt() {
+            uploadPrompt.style.display = 'block';
+            calibrationPrompt.style.display = 'none';
+            webcamPrompt.style.display = 'none';
+            processedFeed.style.display = 'none';
+            playbackControls.style.display = 'none';
+            statusBadge.className = "status-badge";
+            statusBadge.textContent = "🟢 Connected";
+            
+            // Reset metrics
+            totalVal.textContent = "0";
+            occupiedVal.textContent = "0";
+            availableVal.textContent = "0";
+            fpsVal.textContent = "0.0";
+        }
+
+        function showCalibrationPrompt() {
+            uploadPrompt.style.display = 'none';
+            calibrationPrompt.style.display = 'block';
+            webcamPrompt.style.display = 'none';
+            processedFeed.style.display = 'none';
+            playbackControls.style.display = 'none';
+        }
+
+        function showWebcamPrompt() {
+            uploadPrompt.style.display = 'none';
+            calibrationPrompt.style.display = 'none';
+            webcamPrompt.style.display = 'block';
+            processedFeed.style.display = 'none';
+            playbackControls.style.display = 'none';
+            statusBadge.className = "status-badge";
+            statusBadge.textContent = "🟢 Connected";
+
+            // Reset metrics
+            totalVal.textContent = "0";
+            occupiedVal.textContent = "0";
+            availableVal.textContent = "0";
+            fpsVal.textContent = "0.0";
+        }
+
+        function showFeed() {
+            uploadPrompt.style.display = 'none';
+            calibrationPrompt.style.display = 'none';
+            webcamPrompt.style.display = 'none';
+            processedFeed.style.display = 'block';
+        }
+
+        // ── Upload Video ──
+        uploadBtn.addEventListener('click', () => fileUploader.click());
+        
+        fileUploader.addEventListener('change', async (e) => {
+            if (!e.target.files.length) return;
+            
+            const file = e.target.files[0];
+            const formData = new FormData();
+            formData.append('video', file);
+
+            statusBadge.textContent = "⏳ Uploading Video...";
+            statusBadge.className = "status-badge processing";
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    if (data.needs_calibration) {
+                        showCalibrationPrompt();
+                    } else {
+                        showFeed();
+                        playbackControls.style.display = 'flex';
+                        playPauseBtn.textContent = '▶️ Start Processing';
+                    }
+                    statusBadge.textContent = "🟢 Ready";
+                    statusBadge.className = "status-badge";
+                }
+            } catch (err) {
+                alert("Upload failed.");
+                showUploadPrompt();
+            }
+        });
+
+        // ── Auto Calibration ──
+        calibrateBtn.addEventListener('click', async () => {
+            statusBadge.textContent = "🎯 Calibrating slots...";
+            statusBadge.className = "status-badge processing";
+            
+            try {
+                const response = await fetch('/api/auto_detect', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    alert(`Auto-calibration complete: Found ${data.slots_count} slots!`);
+                    showFeed();
+                    playbackControls.style.display = 'flex';
+                    playPauseBtn.textContent = '▶️ Start Processing';
+                    statusBadge.textContent = "🟢 Ready";
+                    statusBadge.className = "status-badge";
+                } else {
+                    alert(data.error || "Calibration failed.");
+                }
+            } catch (err) {
+                alert("Calibration request failed.");
+            }
+        });
+
+        // ── Video Playback Stream ──
+        playPauseBtn.addEventListener('click', async () => {
+            if (!isProcessingVideo) {
+                // Start
+                await fetch('/api/control_playback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'start' })
+                });
+                isProcessingVideo = true;
+                processedFeed.src = '/video_feed?' + Date.now();
+                showFeed();
+                playPauseBtn.textContent = '⏸️ Pause';
+                statusBadge.textContent = "⏳ Processing Video...";
+                statusBadge.className = "status-badge processing";
+                
+                // Start polling metrics status
+                startStatusPolling();
+                
+                // Read metrics periodically during video stream
+                // We'll update the browser FPS counter
+                lastFrameTime = performance.now();
+                frameCount = 0;
+            } else {
+                // Pause
+                await fetch('/api/control_playback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'stop' })
+                });
+                isProcessingVideo = false;
+                processedFeed.src = '';
+                playPauseBtn.textContent = '▶️ Resume';
+                statusBadge.textContent = "🟢 Paused";
+                statusBadge.className = "status-badge";
+                
+                stopStatusPolling();
+            }
+        });
+
+        stopProcessingBtn.addEventListener('click', () => {
+            stopVideoProcessing();
+            showUploadPrompt();
+        });
+
+        function stopVideoProcessing() {
+            if (isProcessingVideo) {
+                fetch('/api/control_playback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'stop' })
+                });
+            }
+            isProcessingVideo = false;
+            processedFeed.src = '';
+            stopStatusPolling();
+        }
+
+        // ── Webcam Stream (WebRTC base64 pipeline) ──
+        webcamStartBtn.addEventListener('click', async () => {
+            if (!isWebcamRunning) {
+                try {
+                    statusBadge.textContent = "📷 Initializing Webcam...";
+                    statusBadge.className = "status-badge processing";
+                    
+                    webcamStream = await navigator.mediaDevices.getUserMedia({
+                        video: { width: 1280, height: 720 }
+                    });
+                    hiddenVideo.srcObject = webcamStream;
+                    isWebcamRunning = true;
+                    showFeed();
+                    webcamStartBtn.textContent = "⏹️ Stop Webcam";
+                    webcamStartBtn.className = "btn btn-danger";
+
+                    // Set video size on canvas when meta loaded
+                    hiddenVideo.onloadedmetadata = () => {
+                        hiddenCanvas.width = hiddenVideo.videoWidth;
+                        hiddenCanvas.height = hiddenVideo.videoHeight;
+                    };
+
+                    // Frame grab loop at ~10 FPS
+                    webcamIntervalId = setInterval(grabAndSendWebcamFrame, 100);
+                } catch (err) {
+                    alert("Unable to access local browser webcam.");
+                    showWebcamPrompt();
+                }
+            } else {
+                stopWebcam();
+                showWebcamPrompt();
+            }
+        });
+
+        function stopWebcam() {
+            isWebcamRunning = false;
+            webcamStartBtn.textContent = "▶️ Start Webcam";
+            webcamStartBtn.className = "btn";
+            
+            if (webcamIntervalId) {
+                clearInterval(webcamIntervalId);
+                webcamIntervalId = null;
+            }
+            
+            if (webcamStream) {
+                webcamStream.getTracks().forEach(track => track.stop());
+                webcamStream = null;
+            }
+            
+            processedFeed.src = '';
+        }
+
+        async function grabAndSendWebcamFrame() {
+            if (!isWebcamRunning) return;
+
+            // Draw to canvas
+            const ctx = hiddenCanvas.getContext('2d');
+            ctx.drawImage(hiddenVideo, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            
+            // Get base64 JPEG
+            const dataUrl = hiddenCanvas.toDataURL('image/jpeg', 0.8);
+
+            // Compute actual FPS in browser
+            const now = performance.now();
+            frameCount++;
+            if (now - lastFrameTime >= 1000) {
+                currentFPS = (frameCount * 1000) / (now - lastFrameTime);
+                frameCount = 0;
+                lastFrameTime = now;
+            }
+
+            try {
+                const response = await fetch('/api/process_webcam', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: dataUrl,
+                        fps: currentFPS
+                    })
+                });
+                
+                const data = await response.json();
+                if (data.image) {
+                    processedFeed.src = data.image;
+                    totalVal.textContent = data.total;
+                    occupiedVal.textContent = data.occupied;
+                    availableVal.textContent = data.available;
+                    fpsVal.textContent = currentFPS.toFixed(1);
+                    
+                    statusBadge.textContent = "🔴 Live Feed";
+                    statusBadge.className = "status-badge processing";
+                }
+            } catch (err) {
+                console.error("Frame processing request failed:", err);
+            }
+        }
+    </script>
+</body>
+</html>
