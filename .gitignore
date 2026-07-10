@@ -1,0 +1,24 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local configuration
+.venv/
+venv/
+ENV/
+env/
+
+# YOLO weights
+*.pt
+
+# Video files (Inputs / Outputs)
+*.avi
+*.mp4
+*.mov
+*.mkv
+output/
+
+# Backups
+*.backup
+*.json.backup
